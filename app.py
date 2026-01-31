@@ -1,192 +1,91 @@
 import streamlit as st
-import edge_tts
 import asyncio
-import tempfile
+import edge_tts
 import os
-import time
+import base64
 
-# ==========================================
-# 1. إعدادات الصفحة
-# ==========================================
-st.set_page_config(
-    page_title="Eng. Yousef Khaled | Pro AI Studio",
-    page_icon="🎙️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# --- إعدادات الصفحة ---
+st.set_page_config(page_title="موقع المهندس يوسف خالد", page_icon="🚀", layout="wide")
 
-# ==========================================
-# 2. تنسيق CSS (تم تحسين شكل السلايدر)
-# ==========================================
+# --- تنسيق CSS مخصص لشكل خرافي ---
 st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Tajawal', sans-serif;
-        direction: rtl;
-        text-align: right;
-    }
-    
-    .stApp {
-        background-color: #f8f9fa;
-        background-image: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-
-    /* تحسين شكل السلايدر ليكون نقاط محددة */
-    div[data-testid="stSelectSlider"] > div > div > div {
-        cursor: pointer;
-    }
-
-    /* الهيدر */
-    .hero-header {
-        background: linear-gradient(120deg, #2b5876 0%, #4e4376 100%);
-        padding: 30px;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin-bottom: 25px;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    }
-    
-    /* زر التحويل */
-    .stButton > button {
-        background: linear-gradient(90deg, #d53369 0%, #daae51 100%);
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        font-size: 18px;
-        border-radius: 10px;
-        width: 100%;
-        transition: transform 0.2s;
-    }
-    .stButton > button:hover {
-        transform: scale(1.02);
-    }
-</style>
+    <style>
+    .main { background-color: #0e1117; color: white; }
+    .stButton>button { width: 100%; border-radius: 20px; background: linear-gradient(45deg, #007bff, #00ff88); color: white; border: none; font-weight: bold; }
+    .footer { text-align: center; padding: 20px; font-size: 14px; color: #888; border-top: 1px solid #333; margin-top: 50px; }
+    .whatsapp-btn { background-color: #25d366; color: white; padding: 10px 20px; border-radius: 50px; text-decoration: none; display: inline-block; }
+    .profile-card { background: #1a1c24; padding: 20px; border-radius: 15px; border-left: 5px solid #007bff; margin-bottom: 20px; }
+    </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 3. البيانات والدوال
-# ==========================================
-VOICE_DATABASE = {
-    "🌍 العربية (Arabic)": {
-        "🇪🇬 مصر - شاكر (رسمي)": "ar-EG-ShakirNeural",
-        "🇪🇬 مصر - سلمى (ودود)": "ar-EG-SalmaNeural",
-        "🇸🇦 السعودية - حامد": "ar-SA-HamedNeural",
-        "🇸🇦 السعودية - زارية": "ar-SA-ZariyahNeural",
-        "🇦🇪 الإمارات - حمد": "ar-AE-HamdanNeural",
-        "🇯🇴 الأردن - تيم": "ar-JO-TaimNeural",
-    },
-    "🇺🇸 الإنجليزية (English)": {
-        "🇺🇸 US - Guy": "en-US-GuyNeural",
-        "🇺🇸 US - Aria": "en-US-AriaNeural",
-        "🇬🇧 UK - Ryan": "en-GB-RyanNeural",
-    }
-}
-
-async def generate_audio_stream(text, voice, rate_str, pitch_hz):
-    # تحويل الـ Pitch لصيغة نصية
-    pitch_str = f"{pitch_hz:+d}Hz"
-    communicate = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
-        await communicate.save(tmp_file.name)
-        return tmp_file.name
-
-# ==========================================
-# 4. واجهة التطبيق
-# ==========================================
-
-# الشريط الجانبي (نفس بياناتك)
+# --- معلومات التواصل والمطور ---
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/4140/4140047.png", width=80)
-    st.markdown("### المهندس يوسف خالد")
-    st.caption("AI & Automation Engineer")
-    st.markdown("---")
-    st.markdown("**🔗 تواصل معي:**")
-    st.markdown("[LinkedIn Profile](https://www.linkedin.com/in/yousefkhaleda)")
-    st.markdown("[WhatsApp: 01007097545](https://wa.me/201007097545)")
+    st.markdown(f"### 👨‍💻 المطور: يوسف خالد")
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=100) # صورة تعبيرية
+    st.info("مهندس كمبيوتر وجرافيك ديزاينر متخصص في الـ AI و Web Mobile.")
+    st.write("🚀 تفعيل اشتراكات Gemini & ChatGPT Pro")
+    st.write("🤖 أتمتة المهام البشرية بالكامل")
+    
+    st.markdown(f"[![LinkedIn](https://img.shields.io/badge/LinkedIn-Profile-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/yousefkhaleda)")
+    st.markdown(f"[![Portfolio](https://img.shields.io/badge/Portfolio-Google_Drive-orange?style=for-the-badge&logo=google-drive)](https://drive.google.com/drive/folders/1F0ziAJ-vRuAd_3GngeyYltMK3iFdUERa?usp=drive_link)")
+    st.markdown(f'<a href="https://wa.me/201007097545" class="whatsapp-btn">💬 تواصل واتساب</a>', unsafe_allow_html=True)
 
-# الهيدر
-st.markdown("""
-<div class="hero-header">
-    <h1 style='margin:0'>🎙️ Eng. Yousef AI Studio</h1>
-    <p>تحويل النص إلى صوت احترافي</p>
-</div>
-""", unsafe_allow_html=True)
+# --- الواجهة الرئيسية ---
+st.title("🎙️ منصة المهندس يوسف لتحويل النص إلى صوت (AI)")
+st.subheader("تحويل ذكي، أصوات متعددة، وتحكم كامل في السرعة")
 
-col1, col2 = st.columns([1, 2])
+col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.info("🎛️ **إعدادات الصوت**")
+    text_input = st.text_area("أدخل النص المراد تحويله هنا:", placeholder="اكتب ما تريد تحويله لصوت احترافي...", height=250)
     
-    # 1. اختيار الصوت
-    cat = st.selectbox("اللغة:", list(VOICE_DATABASE.keys()))
-    voice_name = st.selectbox("المعلق:", list(VOICE_DATABASE[cat].keys()))
-    voice_code = VOICE_DATABASE[cat][voice_name]
-    
-    st.markdown("---")
-    
-    # 2. سرعة القراءة (التعديل الجديد هنا) ⚡
-    # قمنا بعمل خريطة لربط الاسم بالقيمة الفعلية
-    speed_options = {
-        "x0.5 (بطيء جداً)": "-50%",
-        "x0.75 (بطيء)": "-25%",
-        "x1.0 (طبيعي)": "+0%",
-        "x1.25 (سريع)": "+25%",
-        "x1.5 (سريع جداً)": "+50%",
-        "x2.0 (أقصى سرعة)": "+100%"
-    }
-    
-    # السلايدر الآن يختار من القائمة دي بس
-    selected_speed_label = st.select_slider(
-        "⚡ سرعة القراءة (Speed):",
-        options=list(speed_options.keys()),
-        value="x1.0 (طبيعي)"
-    )
-    # استخراج القيمة الحقيقية (مثل +50%)
-    real_speed_value = speed_options[selected_speed_label]
-    
-    st.markdown("---")
-    
-    # 3. طبقة الصوت
-    pitch = st.slider("🎚️ طبقة الصوت (Pitch):", -50, 50, 0, step=5, format="%d Hz")
-
 with col2:
-    st.success("📝 **مساحة العمل**")
-    text_area = st.text_area("", height=320, placeholder="اكتب النص هنا...")
+    # قائمة الأصوات الاحترافية
+    voices = {
+        "عربي - شاكر (ذكر)": "ar-EG-ShakirNeural",
+        "عربي - سلمى (أنثى)": "ar-EG-SalmaNeural",
+        "عربي - حمدان (إماراتي)": "ar-AE-HamdanNeural",
+        "English - Guy (Male)": "en-US-GuyNeural",
+        "English - Ava (Female)": "en-US-AvaNeural"
+    }
+    selected_voice_label = st.selectbox("اختر الصوت:", list(voices.keys()))
+    voice = voices[selected_voice_label]
     
-    generate_btn = st.button("🚀 تحويل ومعاينة (Generate)")
+    # اختيار السرعة من قائمة
+    speed_options = {"x0.5 (بطيء)": "-50%", "x1.0 (طبيعي)": "+0%", "x1.5 (سريع)": "+50%", "x2.0 (سريع جداً)": "+100%"}
+    speed_label = st.selectbox("سرعة الصوت:", list(speed_options.keys()))
+    speed = speed_options[speed_label]
 
-# منطقة النتائج والمعاينة
-if generate_btn and text_area:
-    st.markdown("---")
-    with st.spinner("جاري المعالجة..."):
-        try:
-            # تشغيل الدالة
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            output_file = loop.run_until_complete(
-                generate_audio_stream(text_area, voice_code, real_speed_value, pitch)
+# --- وظيفة المعالجة ---
+async def generate_audio(text, voice, speed):
+    communicate = edge_tts.Communicate(text, voice, rate=speed)
+    await communicate.save("output.mp3")
+
+if st.button("توليد الصوت الآن 🔥"):
+    if text_input.strip():
+        with st.spinner("جاري معالجة الصوت بأعلى جودة..."):
+            asyncio.run(generate_audio(text_input, voice, speed))
+            
+            # عرض الصوت للمعاينة
+            audio_file = open("output.mp3", "rb")
+            audio_bytes = audio_file.read()
+            st.audio(audio_bytes, format="audio/mp3")
+            
+            # زر التحميل
+            st.download_button(
+                label="📥 تحميل الملف الصوتي",
+                data=audio_bytes,
+                file_name=f"Yousef_AI_{selected_voice_label}.mp3",
+                mime="audio/mp3"
             )
-            
-            # عرض المعاينة بشكل واضح
-            st.markdown("### 🎧 معاينة الصوت (Preview):")
-            
-            # 1. مشغل الصوت المدمج (للمعاينة الفورية)
-            st.audio(output_file, format="audio/mp3")
-            
-            # 2. زر التحميل
-            with open(output_file, "rb") as file:
-                st.download_button(
-                    label="⬇️ تحميل الملف (Download MP3)",
-                    data=file,
-                    file_name="Yousef_AI_Voice.mp3",
-                    mime="audio/mp3",
-                    use_container_width=True
-                )
-                
-            st.success("✅ تم التحويل بنجاح!")
-            
-        except Exception as e:
-            st.error(f"حدث خطأ: {e}")
+    else:
+        st.warning("من فضلك أدخل نصاً أولاً!")
+
+# --- فوتر الحقوق ---
+st.markdown("---")
+st.markdown(f"""
+    <div class="footer">
+        <p>جميع الحقوق محفوظة © 2026 لصالح المهندس <b>يوسف خالد جودة محسب</b></p>
+        <p>المنصة تعمل بتقنيات AI Web Mobile | متخصصون في الأتمتة الشاملة</p>
+    </div>
+""", unsafe_allow_html=True)
