@@ -2,379 +2,513 @@ import streamlit as st
 import edge_tts
 import asyncio
 import tempfile
-import os
-import time
 import base64
-from datetime import datetime
+import time
+from collections import defaultdict
 
-# ==========================================
-# 1. تكوين الصفحة والنظام (System Config)
-# ==========================================
+# =========================
+# Config (Links)
+# =========================
+LINKEDIN_URL = "https://www.linkedin.com/in/yousefkhaleda"
+PORTFOLIO_DRIVE_URL = "https://drive.google.com/drive/folders/1F0ziAJ-vRuAd_3GngeyYltMK3iFdUERa?usp=drive_link"
+WHATSAPP_NUMBER_E164 = "201007097545"  # Egypt +20
+WHATSAPP_URL = f"https://wa.me/{WHATSAPP_NUMBER_E164}"
+FACEBOOK_URL = ""  # optional
+
+# =========================
+# Page setup
+# =========================
 st.set_page_config(
-    page_title="Eng. Yousef | AI Enterprise Studio",
-    page_icon="🎧",
+    page_title="Eng. Yousef | Global AI Voice Studio",
+    page_icon="🎙️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# تهيئة الجلسة لتخزين الأرشيف (Session State)
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'generated_count' not in st.session_state:
-    st.session_state.generated_count = 0
+# =========================
+# Helpers
+# =========================
+def run_async(coro):
+    """Run async safely in Streamlit."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            return new_loop.run_until_complete(coro)
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        return new_loop.run_until_complete(coro)
 
-# ==========================================
-# 2. التنسيق المتقدم (Enterprise CSS)
-# ==========================================
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;500;800&display=swap');
-    
-    :root {
-        --primary: #4A90E2;
-        --secondary: #FF4B4B;
-        --dark: #1E2329;
-        --light: #F8F9FA;
-    }
+@st.cache_data(ttl=60 * 60, show_spinner=False)
+def fetch_voices_cached():
+    async def _fetch():
+        return await edge_tts.list_voices()
+    voices = run_async(_fetch())
+    cleaned = []
+    for v in voices:
+        cleaned.append({
+            "ShortName": v.get("ShortName"),
+            "Locale": v.get("Locale"),
+            "Gender": v.get("Gender"),
+            "FriendlyName": v.get("FriendlyName") or v.get("Name") or v.get("ShortName"),
+        })
+    return cleaned
 
-    html, body, [class*="css"] {
-        font-family: 'Tajawal', sans-serif;
-        direction: rtl;
-        text-align: right;
-    }
+def make_data_audio_link(mp3_path: str) -> str:
+    with open(mp3_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:audio/mpeg;base64,{b64}"
 
-    /* خلفية التطبيق */
-    .stApp {
-        background-color: #f4f6f9;
-    }
-
-    /* الهيدر الرئيسي */
-    .main-header {
-        background: linear-gradient(135deg, #000428 0%, #004e92 100%);
-        padding: 2rem;
-        border-radius: 20px;
-        color: white;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .stat-card {
-        background: white;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        text-align: center;
-        border-bottom: 4px solid var(--primary);
-    }
-    .stat-number {
-        font-size: 24px;
-        font-weight: bold;
-        color: var(--dark);
-    }
-    .stat-label {
-        font-size: 14px;
-        color: #666;
-    }
-
-    /* تحسين السلايدر */
-    div[data-testid="stSelectSlider"] label { color: var(--secondary); font-weight: bold; }
-    
-    /* الأزرار */
-    .stButton button {
-        border-radius: 8px;
-        font-weight: bold;
-        transition: all 0.3s ease;
-    }
-    
-    /* الشريط الجانبي */
-    [data-testid="stSidebar"] {
-        background-color: white;
-        border-left: 1px solid #eee;
-    }
-    
-    .sidebar-profile {
-        text-align: center;
-        padding: 20px 0;
-        background: linear-gradient(to bottom, #f8f9fa, #fff);
-        border-radius: 15px;
-        margin-bottom: 20px;
-    }
-    
-    /* أيقونات التواصل */
-    .social-row { display: flex; gap: 10px; justify-content: center; margin-top: 15px; }
-    .social-icon { 
-        width: 40px; height: 40px; 
-        border-radius: 50%; 
-        display: flex; align-items: center; justify-content: center; 
-        color: white; text-decoration: none; font-size: 18px;
-        transition: transform 0.2s;
-    }
-    .social-icon:hover { transform: scale(1.1); }
-    .wa { background: #25D366; }
-    .li { background: #0077b5; }
-    .pf { background: #E1306C; }
-
-</style>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# 3. قاعدة البيانات الموسعة (Global Voices)
-# ==========================================
-VOICES = {
-    "AR - العربية": {
-        "🇪🇬 مصر - شاكر (رسمي)": "ar-EG-ShakirNeural",
-        "🇪🇬 مصر - سلمى (إعلاني)": "ar-EG-SalmaNeural",
-        "🇸🇦 السعودية - حامد": "ar-SA-HamedNeural",
-        "🇸🇦 السعودية - زارية": "ar-SA-ZariyahNeural",
-        "🇦🇪 الإمارات - حمد": "ar-AE-HamdanNeural",
-        "🇦🇪 الإمارات - فاطمة": "ar-AE-FatimaNeural",
-        "🇯🇴 الأردن - تيم": "ar-JO-TaimNeural",
-        "🇩🇿 الجزائر - إسماعيل": "ar-DZ-IsmaelNeural",
-        "🇧🇭 البحرين - علي": "ar-BH-AliNeural",
-        "🇮🇶 العراق - باسل": "ar-IQ-BasselNeural",
-        "🇱🇾 ليبيا - عمر": "ar-LY-OmarNeural",
-        "🇾🇪 اليمن - مريم": "ar-YE-MaryamNeural",
-    },
-    "EN - English": {
-        "🇺🇸 US - Guy (Professional)": "en-US-GuyNeural",
-        "🇺🇸 US - Aria (Energetic)": "en-US-AriaNeural",
-        "🇺🇸 US - Christopher (Deep)": "en-US-ChristopherNeural",
-        "🇬🇧 UK - Ryan (Narrator)": "en-GB-RyanNeural",
-        "🇬🇧 UK - Sonia (News)": "en-GB-SoniaNeural",
-    },
-    "FR - Français": {
-        "🇫🇷 France - Henri": "fr-FR-HenriNeural",
-        "🇫🇷 France - Denise": "fr-FR-DeniseNeural",
-    },
-    "DE - Deutsch": {
-        "🇩🇪 Germany - Conrad": "de-DE-ConradNeural",
-        "🇩🇪 Germany - Katja": "de-DE-KatjaNeural",
-    }
-}
-
-# ==========================================
-# 4. المحرك (Core Engine)
-# ==========================================
-async def engine_generate(text, voice_code, speed_x, pitch_hz, volume_pct):
-    # 1. معالجة السرعة
-    if speed_x == 1.0: rate_str = "+0%"
-    else:
-        pct = int((speed_x - 1) * 100)
-        rate_str = f"{pct:+d}%"
-    
-    # 2. معالجة الطبقة
+async def generate_audio(text: str, voice_shortname: str, rate_str: str, pitch_hz: int):
     pitch_str = f"{pitch_hz:+d}Hz"
-    
-    # 3. معالجة الصوت (Volume)
-    vol_str = f"{volume_pct:+d}%"
-    
-    communicate = edge_tts.Communicate(text, voice_code, rate=rate_str, pitch=pitch_str, volume=vol_str)
-    
-    # اسم ملف فريد
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"YousefStudio_{timestamp}.mp3"
-    filepath = os.path.join(tempfile.gettempdir(), filename)
-    
-    await communicate.save(filepath)
-    return filepath, filename
+    communicate = edge_tts.Communicate(text, voice_shortname, rate=rate_str, pitch=pitch_str)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+        await communicate.save(tmp.name)
+        return tmp.name
 
-# ==========================================
-# 5. الشريط الجانبي (Professional Sidebar)
-# ==========================================
+def build_voice_index(voices):
+    """
+    index[lang]['Male'/'Female'][locale] = list of voices
+    lang derived from locale prefix (ar, en, ...)
+    """
+    index = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    for v in voices:
+        locale = v.get("Locale") or ""
+        short = v.get("ShortName")
+        gender = v.get("Gender") or "Unknown"
+        if not locale or not short:
+            continue
+        lang = locale.split("-")[0].lower()  # ar / en / ...
+        index[lang][gender][locale].append(v)
+
+    # sort each list
+    for lang in index:
+        for gender in index[lang]:
+            for locale in index[lang][gender]:
+                index[lang][gender][locale] = sorted(
+                    index[lang][gender][locale],
+                    key=lambda x: (x.get("FriendlyName") or "")
+                )
+    return index
+
+def voice_label(v):
+    # nice readable label
+    return f"{v.get('FriendlyName','')}  •  {v.get('ShortName','')}"
+
+def filter_voices(voices_list, s: str):
+    if not s:
+        return voices_list
+    s = s.lower().strip()
+    out = []
+    for v in voices_list:
+        if (
+            s in (v.get("FriendlyName","") or "").lower()
+            or s in (v.get("ShortName","") or "").lower()
+            or s in (v.get("Locale","") or "").lower()
+            or s in (v.get("Gender","") or "").lower()
+        ):
+            out.append(v)
+    return out
+
+# =========================
+# Global UI language toggle
+# =========================
+ui_lang = st.sidebar.selectbox("🌐 Interface Language", ["العربية", "English"], index=0)
+RTL = (ui_lang == "العربية")
+
+def inject_css(rtl: bool):
+    direction = "rtl" if rtl else "ltr"
+    align = "right" if rtl else "left"
+
+    st.markdown(
+        f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap');
+
+html, body, [class*="css"] {{
+  font-family: 'Tajawal', sans-serif;
+  direction: {direction};
+  text-align: {align};
+}}
+
+.stApp {{
+  background:
+    radial-gradient(circle at 10% 10%, rgba(21,87,153,0.14), transparent 45%),
+    radial-gradient(circle at 90% 20%, rgba(21,153,87,0.12), transparent 45%),
+    radial-gradient(circle at 60% 90%, rgba(213,51,105,0.10), transparent 45%),
+    linear-gradient(135deg, #f8fafc 0%, #eef3fb 100%);
+}}
+
+.hero {{
+  background: linear-gradient(120deg, #0f2027, #203a43, #2c5364);
+  color: white;
+  padding: 24px 18px;
+  border-radius: 18px;
+  box-shadow: 0 14px 35px rgba(0,0,0,0.16);
+  margin-bottom: 14px;
+}}
+
+.hero h1 {{ margin: 0; font-weight: 900; font-size: 34px; }}
+.hero p  {{ margin: 6px 0 0; opacity: 0.92; font-size: 15px; }}
+
+.card {{
+  background: rgba(255,255,255,0.72);
+  border: 1px solid rgba(255,255,255,0.60);
+  border-radius: 18px;
+  box-shadow: 0 10px 26px rgba(15,32,39,0.10);
+  backdrop-filter: blur(10px);
+  padding: 14px;
+}}
+
+.kpi {{
+  display:inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.70);
+  border: 1px solid rgba(0,0,0,0.06);
+  font-size: 12px;
+  margin: 0 6px 6px 0;
+}}
+
+.social-btn {{
+  display:block;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: white !important;
+  text-decoration: none;
+  font-weight: 800;
+  text-align: center;
+  margin: 8px 0;
+  box-shadow: 0 10px 18px rgba(0,0,0,0.12);
+  transition: transform .18s ease, opacity .18s ease;
+}}
+.social-btn:hover {{ transform: translateY(-2px); opacity: 0.95; }}
+
+.linkedin {{ background: linear-gradient(90deg, #0077b5, #0a66c2); }}
+.drive    {{ background: linear-gradient(90deg, #1fa463, #0f9d58); }}
+.whatsapp {{ background: linear-gradient(90deg, #25D366, #128C7E); }}
+.facebook {{ background: linear-gradient(90deg, #1877F2, #0b5fcc); }}
+
+.stButton > button {{
+  background: linear-gradient(90deg, #d53369 0%, #daae51 100%);
+  border: none;
+  border-radius: 14px;
+  color: white;
+  font-weight: 900;
+  height: 52px;
+  width: 100%;
+  box-shadow: 0 12px 22px rgba(213,51,105,0.18);
+  transition: transform .18s ease, box-shadow .18s ease;
+}}
+.stButton > button:hover {{
+  transform: translateY(-2px);
+  box-shadow: 0 16px 28px rgba(213,51,105,0.22);
+}}
+
+.small-note {{
+  opacity: 0.78;
+  font-size: 13px;
+}}
+
+hr {{ border-top: 1px solid rgba(0,0,0,0.06); }}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+inject_css(RTL)
+
+# =========================
+# Sidebar (Profile & Links)
+# =========================
 with st.sidebar:
-    st.markdown("""
-    <div class="sidebar-profile">
-        <img src="https://cdn-icons-png.flaticon.com/512/2620/2620581.png" width="90" style="margin-bottom:10px;">
-        <h3 style="margin:0;">المهندس يوسف خالد</h3>
-        <p style="color:#777; font-size:12px; margin:0;">Software Engineer & Business Owner</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # القوائم المنسدلة للخدمات
-    with st.expander("🚀 خدمات الشركات (Business)", expanded=True):
-        st.markdown("**✈️ Queen Travel:** سياحة وتأجير سيارات.")
-        st.markdown("**👗 Hoor Brand:** براند ملابس عصري.")
-        st.markdown("**🤖 Automation:** حلول الذكاء الاصطناعي.")
-    
-    with st.expander("🛠️ الخدمات التقنية (Tech)"):
-        st.caption("تطوير مواقع (Web Dev)")
-        st.caption("سكربتات بايثون (Python Scripting)")
-        st.caption("تفعيل اشتراكات AI Premium")
+    st.markdown("## 👨‍💻 يوسف خالد" if RTL else "## 👨‍💻 Yousef Khaled")
+    st.caption("AI & Automation Engineer | Web / Mobile / AI Solutions")
+
+    st.markdown(
+        """
+<div class="card">
+  <span class="kpi">AI</span>
+  <span class="kpi">Web</span>
+  <span class="kpi">Mobile</span>
+  <span class="kpi">Automation</span>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
-    
-    # قسم التواصل بتصميم جديد
-    st.markdown("<p style='text-align:center; font-weight:bold;'>تواصل معي مباشرة</p>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class="social-row">
-        <a href="https://wa.me/201007097545" target="_blank" class="social-icon wa">W</a>
-        <a href="https://www.linkedin.com/in/yousefkhaleda" target="_blank" class="social-icon li">in</a>
-        <a href="https://drive.google.com/drive/folders/1F0ziAJ-vRuAd_3GngeyYltMK3iFdUERa?usp=drive_link" target="_blank" class="social-icon pf">P</a>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.info("💡 الإصدار V6.0 Enterprise")
+    st.markdown("### 🚀 خدماتي:" if RTL else "### 🚀 Services:")
+    st.markdown(
+        """
+- 🤖 أتمتة المهام وتحويلها لأنظمة تعمل أوتوماتيك بالكامل
+- 🌐 بناء مواقع وSaaS (Web Apps) + حلول AI
+- 💎 مساعدة في إعداد الاشتراكات عبر القنوات الرسمية المتاحة
+""" if RTL else
+        """
+- 🤖 Automate manual workflows into fully automated systems
+- 🌐 Build modern websites & SaaS products + AI solutions
+- 💎 Help with official subscription setup guidance
+"""
+    )
 
-# ==========================================
-# 6. الواجهة الرئيسية (Main Dashboard)
-# ==========================================
+    st.markdown("---")
+    st.markdown("### 🔗 روابط:" if RTL else "### 🔗 Links:")
+    st.markdown(
+        f"""
+<a class="social-btn linkedin" href="{LINKEDIN_URL}" target="_blank">LinkedIn</a>
+<a class="social-btn drive" href="{PORTFOLIO_DRIVE_URL}" target="_blank">Portfolio</a>
+<a class="social-btn whatsapp" href="{WHATSAPP_URL}" target="_blank">WhatsApp</a>
+""",
+        unsafe_allow_html=True,
+    )
+    if FACEBOOK_URL.strip():
+        st.markdown(
+            f"""<a class="social-btn facebook" href="{FACEBOOK_URL}" target="_blank">Facebook</a>""",
+            unsafe_allow_html=True,
+        )
 
-# الهيدر
-st.markdown("""
-<div class="main-header">
-    <h1 style="font-weight:900; margin-bottom:10px;">🎙️ Eng. Yousef AI Voice Platform</h1>
-    <p style="opacity:0.8;">نظام ذكي لتحويل النصوص إلى تعليق صوتي بشري | Enterprise Edition</p>
+    st.markdown("---")
+    st.caption("© 2026 جميع الحقوق محفوظة لصالح Eng. Yousef Khaled" if RTL else "© 2026 All rights reserved — Eng. Yousef Khaled")
+
+# =========================
+# Header
+# =========================
+st.markdown(
+    f"""
+<div class="hero">
+  <h1>{"🎙️ منصة عالمية لتحويل النص إلى صوت" if RTL else "🎙️ Global AI Text-to-Speech Studio"}</h1>
+  <p>{"عربي/إنجليزي — ذكور/إناث — سرعات واضحة x0.5 إلى x2 + معاينة وتحميل" if RTL else "Arabic/English — Male/Female — Clear speeds x0.5 to x2 + Preview & Download"}</p>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# شريط الحالة (Stats)
-col_s1, col_s2, col_s3 = st.columns(3)
-with col_s1:
-    st.markdown(f"""<div class="stat-card"><div class="stat-number">{st.session_state.generated_count}</div><div class="stat-label">ملفات تم إنشاؤها</div></div>""", unsafe_allow_html=True)
-with col_s2:
-    st.markdown(f"""<div class="stat-card"><div class="stat-number">{len(VOICES['AR - العربية']) + len(VOICES['EN - English']) + 4}</div><div class="stat-label">صوت متاح</div></div>""", unsafe_allow_html=True)
-with col_s3:
-    st.markdown("""<div class="stat-card"><div class="stat-number">∞</div><div class="stat-label">مدة التحويل</div></div>""", unsafe_allow_html=True)
+# =========================
+# Load & index voices
+# =========================
+with st.spinner("جاري تحميل مكتبة الأصوات..." if RTL else "Loading voice library..."):
+    voices = fetch_voices_cached()
 
-st.markdown("<br>", unsafe_allow_html=True)
+voice_index = build_voice_index(voices)
 
-# نظام التبويبات
-tab_studio, tab_history, tab_help = st.tabs(["🎛️ ستوديو العمل", "📂 أرشيف الجلسة", "ℹ️ مساعدة"])
+# Arabic / English only (as requested)
+AR_LANG = "ar"
+EN_LANG = "en"
 
-# --- TAB 1: STUDIO ---
-with tab_studio:
-    row1_col1, row1_col2 = st.columns([1, 2])
-    
-    # 1. الإعدادات (اليسار)
-    with row1_col1:
-        with st.container(border=True):
-            st.markdown("### ⚙️ إعدادات الصوت")
-            
-            # اللغة والصوت
-            lang_cat = st.selectbox("اللغة:", list(VOICES.keys()))
-            voice_name = st.selectbox("المعلق:", list(VOICES[lang_cat].keys()))
-            selected_code = VOICES[lang_cat][voice_name]
-            
-            st.markdown("---")
-            
-            # تحكم متقدم (Expandable)
-            with st.expander("🎚️ هندسة الصوت (Advanced Audio)", expanded=True):
-                # السرعة
-                speed_val = st.select_slider(
-                    "⚡ السرعة (Speed)",
-                    options=[0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
-                    value=1.0,
-                    format_func=lambda x: f"{x}x"
-                )
-                
-                # الطبقة
-                pitch_val = st.slider("🎤 طبقة الصوت (Pitch)", -50, 50, 0, 5, format="%d Hz")
-                
-                # الصوت
-                vol_val = st.slider("🔊 مستوى الصوت (Volume)", -50, 50, 0, 10, format="%d%%")
+# Some voices may have different gender keys; we focus on Male/Female
+def locales_for(lang_key: str):
+    locales = set()
+    for g in ["Male", "Female"]:
+        locales.update(voice_index.get(lang_key, {}).get(g, {}).keys())
+    return sorted(list(locales))
 
-    # 2. الإدخال (اليمين)
-    with row1_col2:
-        with st.container(border=True):
-            st.markdown("### 📝 النص (Script)")
-            
-            txt_in = st.text_area(
-                "اكتب النص هنا",
-                height=300,
-                placeholder="أهلاً بك في منصة المهندس يوسف خالد.. اكتب النص هنا...",
-                label_visibility="collapsed"
-            )
-            
-            # أدوات النص
-            t_col1, t_col2 = st.columns([4, 1])
-            with t_col1:
-                st.caption(f"عدد الحروف: {len(txt_in)}")
-            with t_col2:
-                if st.button("🗑️ مسح", type="secondary"):
-                    txt_in = "" # (يحتاج rerun لتفعيل المسح الفعلي لكن الزر موجود كواجهة)
-            
-            st.markdown("---")
-            
-            # زر التنفيذ
-            if st.button("🚀 تحويل ومعالجة (Generate Audio)", type="primary", use_container_width=True):
-                if not txt_in.strip():
-                    st.error("⚠️ يرجى كتابة نص أولاً!")
+def voices_for(lang_key: str, gender: str, locale: str):
+    return voice_index.get(lang_key, {}).get(gender, {}).get(locale, [])
+
+# =========================
+# Main layout
+# =========================
+left, right = st.columns([2, 1], gap="large")
+
+with right:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown("### ⚙️ الإعدادات" if RTL else "### ⚙️ Settings")
+
+    # Tabs: Arabic / English
+    t_ar, t_en = st.tabs(["🇸🇦 العربية" if RTL else "🇸🇦 Arabic", "🇺🇸 English"])
+
+    selected_voice_shortname = None
+
+    # Shared search
+    search = st.text_input("🔎 ابحث عن صوت (اسم/ذكر/أنثى/كود):" if RTL else "🔎 Search voice (name/gender/code):", value="")
+
+    # ---------- Arabic tab ----------
+    with t_ar:
+        ar_locales = locales_for(AR_LANG)
+        if not ar_locales:
+            st.warning("لا توجد أصوات عربية متاحة حالياً." if RTL else "No Arabic voices found.")
+        else:
+            default_ar = "ar-EG" if "ar-EG" in ar_locales else ar_locales[0]
+            ar_locale = st.selectbox("🌍 الدولة/اللغة (Arabic Locale):", ar_locales, index=ar_locales.index(default_ar))
+
+            male_col, female_col = st.columns(2, gap="medium")
+
+            # Male section
+            with male_col:
+                st.markdown("#### 👨 ذكور" if RTL else "#### 👨 Male")
+                ar_male = filter_voices(voices_for(AR_LANG, "Male", ar_locale), search)
+                if not ar_male:
+                    st.info("لا توجد نتائج للذكور بهذا البحث." if RTL else "No male results for this search.")
+                    male_choice = None
                 else:
-                    with st.spinner("جاري الاتصال بسيرفرات المعالجة..."):
-                        try:
-                            # تشغيل المحرك
-                            audio_path, file_name = asyncio.run(
-                                engine_generate(txt_in, selected_code, speed_val, pitch_val, vol_val)
-                            )
-                            
-                            # تحديث الإحصائيات والأرشيف
-                            st.session_state.generated_count += 1
-                            st.session_state.history.insert(0, {
-                                "time": datetime.now().strftime("%I:%M %p"),
-                                "text": txt_in[:50] + "...",
-                                "path": audio_path,
-                                "name": file_name
-                            })
-                            
-                            st.success("✅ تمت العملية بنجاح!")
-                            
-                            # عرض النتيجة فوراً
-                            st.audio(audio_path, format="audio/mp3")
-                            
-                            with open(audio_path, "rb") as f:
-                                st.download_button(
-                                    label="⬇️ تحميل MP3",
-                                    data=f,
-                                    file_name=file_name,
-                                    mime="audio/mp3",
-                                    use_container_width=True
-                                )
-                                
-                        except Exception as e:
-                            st.error(f"حدث خطأ تقني: {e}")
+                    male_labels = [voice_label(v) for v in ar_male]
+                    male_choice = st.selectbox("اختر صوت ذكر:" if RTL else "Select a male voice:", male_labels)
 
-# --- TAB 2: HISTORY ---
-with tab_history:
-    st.markdown("### 📂 الملفات السابقة (في هذه الجلسة)")
-    if not st.session_state.history:
-        st.info("لا يوجد ملفات حتى الآن. قم بتحويل نص لتظهر هنا.")
+            # Female section
+            with female_col:
+                st.markdown("#### 👩 إناث" if RTL else "#### 👩 Female")
+                ar_female = filter_voices(voices_for(AR_LANG, "Female", ar_locale), search)
+                if not ar_female:
+                    st.info("لا توجد نتائج للإناث بهذا البحث." if RTL else "No female results for this search.")
+                    female_choice = None
+                else:
+                    female_labels = [voice_label(v) for v in ar_female]
+                    female_choice = st.selectbox("اختر صوت أنثى:" if RTL else "Select a female voice:", female_labels)
+
+            use_gender = st.radio(
+                "استخدم:" if RTL else "Use:",
+                options=["👨 ذكر" if RTL else "👨 Male", "👩 أنثى" if RTL else "👩 Female"],
+                horizontal=True,
+                index=0
+            )
+
+            if (use_gender.startswith("👨") and male_choice) and ar_male:
+                selected_voice_shortname = ar_male[[voice_label(v) for v in ar_male].index(male_choice)]["ShortName"]
+            elif (use_gender.startswith("👩") and female_choice) and ar_female:
+                selected_voice_shortname = ar_female[[voice_label(v) for v in ar_female].index(female_choice)]["ShortName"]
+            else:
+                # fallback if chosen list empty
+                if ar_male:
+                    selected_voice_shortname = ar_male[0]["ShortName"]
+                elif ar_female:
+                    selected_voice_shortname = ar_female[0]["ShortName"]
+
+    # ---------- English tab ----------
+    with t_en:
+        en_locales = locales_for(EN_LANG)
+        if not en_locales:
+            st.warning("لا توجد أصوات إنجليزية متاحة حالياً." if RTL else "No English voices found.")
+        else:
+            default_en = "en-US" if "en-US" in en_locales else en_locales[0]
+            en_locale = st.selectbox("🌍 Country/Locale (English):", en_locales, index=en_locales.index(default_en))
+
+            male_col, female_col = st.columns(2, gap="medium")
+
+            with male_col:
+                st.markdown("#### 👨 Male")
+                en_male = filter_voices(voices_for(EN_LANG, "Male", en_locale), search)
+                if not en_male:
+                    st.info("No male results for this search.")
+                    male_choice = None
+                else:
+                    male_labels = [voice_label(v) for v in en_male]
+                    male_choice = st.selectbox("Select a male voice:", male_labels)
+
+            with female_col:
+                st.markdown("#### 👩 Female")
+                en_female = filter_voices(voices_for(EN_LANG, "Female", en_locale), search)
+                if not en_female:
+                    st.info("No female results for this search.")
+                    female_choice = None
+                else:
+                    female_labels = [voice_label(v) for v in en_female]
+                    female_choice = st.selectbox("Select a female voice:", female_labels)
+
+            use_gender = st.radio(
+                "Use:",
+                options=["👨 Male", "👩 Female"],
+                horizontal=True,
+                index=0
+            )
+
+            if (use_gender.startswith("👨") and male_choice) and en_male:
+                selected_voice_shortname = en_male[[voice_label(v) for v in en_male].index(male_choice)]["ShortName"]
+            elif (use_gender.startswith("👩") and female_choice) and en_female:
+                selected_voice_shortname = en_female[[voice_label(v) for v in en_female].index(female_choice)]["ShortName"]
+            else:
+                if en_male:
+                    selected_voice_shortname = en_male[0]["ShortName"]
+                elif en_female:
+                    selected_voice_shortname = en_female[0]["ShortName"]
+
+    st.markdown("---")
+    st.markdown("### ⚡ السرعة" if RTL else "### ⚡ Speed")
+    speed_map = {
+        "x0.5 (Very Slow)" if not RTL else "x0.5 (بطيء جدًا)": "-50%",
+        "x0.75 (Slow)" if not RTL else "x0.75 (بطيء)": "-25%",
+        "x1.0 (Normal)" if not RTL else "x1.0 (طبيعي)": "+0%",
+        "x1.25 (Fast)" if not RTL else "x1.25 (سريع)": "+25%",
+        "x1.5 (Very Fast)" if not RTL else "x1.5 (سريع جدًا)": "+50%",
+        "x2.0 (Max)" if not RTL else "x2.0 (أقصى سرعة)": "+100%",
+    }
+    speed_label = st.selectbox("اختر السرعة:" if RTL else "Choose speed:", options=list(speed_map.keys()), index=2)
+    rate_str = speed_map[speed_label]
+    st.caption(("✅ اختيارك: " if RTL else "✅ Selected: ") + f"**{speed_label}**")
+
+    st.markdown("---")
+    st.markdown("### 🎚️ طبقة الصوت (اختياري)" if RTL else "### 🎚️ Pitch (optional)")
+    pitch = st.slider("Pitch (Hz):", -50, 50, 0, step=5)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with left:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown("### 📝 أدخل النص" if RTL else "### 📝 Enter your text")
+    text = st.text_area(
+        label="",
+        height=260,
+        placeholder="اكتب ما تريد تحويله لصوت احترافي..." if RTL else "Type what you want to convert into a professional voice...",
+    )
+    st.caption(("عدد الحروف: " if RTL else "Characters: ") + str(len(text)))
+
+    generate = st.button("🚀 توليد + معاينة" if RTL else "🚀 Generate + Preview")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# =========================
+# Output
+# =========================
+if generate:
+    if not text.strip():
+        st.warning("⚠️ اكتب نص الأول." if RTL else "⚠️ Please type some text first.")
+    elif not selected_voice_shortname:
+        st.error("اختيار الصوت غير متاح حالياً." if RTL else "Voice selection not available.")
     else:
-        for item in st.session_state.history:
-            with st.container(border=True):
-                c1, c2, c3 = st.columns([1, 3, 1])
+        st.markdown("---")
+        with st.spinner("جاري توليد الصوت..." if RTL else "Generating audio..."):
+            try:
+                out_path = run_async(generate_audio(text, selected_voice_shortname, rate_str, pitch))
+                st.success("✅ تم التوليد بنجاح!" if RTL else "✅ Generated successfully!")
+
+                c1, c2 = st.columns([3, 1])
                 with c1:
-                    st.caption(item["time"])
+                    st.markdown("### 🎧 معاينة" if RTL else "### 🎧 Preview")
+                    st.audio(out_path, format="audio/mpeg")
+
                 with c2:
-                    st.write(f"**{item['name']}**")
-                    st.caption(item["text"])
-                with c3:
-                    if os.path.exists(item["path"]):
-                        with open(item["path"], "rb") as f:
-                            st.download_button(
-                                "⬇️",
-                                data=f,
-                                file_name=item["name"],
-                                mime="audio/mp3",
-                                key=item["name"]
-                            )
+                    st.markdown("### ⬇️ تحميل" if RTL else "### ⬇️ Download")
+                    with open(out_path, "rb") as f:
+                        st.download_button(
+                            "تحميل MP3" if RTL else "Download MP3",
+                            data=f,
+                            file_name=f"Yousef_AI_Voice_{int(time.time())}.mp3",
+                            mime="audio/mpeg",
+                            use_container_width=True,
+                        )
 
-# --- TAB 3: HELP ---
-with tab_help:
-    st.markdown("""
-    ### 💡 كيفية الاستخدام
-    1. اختر اللغة والمعلق الصوتي من القائمة اليسرى.
-    2. تحكم في **السرعة** و **طبقة الصوت** للحصول على نبرة مميزة.
-    3. اكتب النص في المربع الأيمن واضغط "تحويل".
-    4. ستظهر النتيجة فوراً ويمكنك تحميلها أو الرجوع إليها من تبويب "أرشيف الجلسة".
-    
-    ---
-    **للدعم الفني والتطوير المخصص:**
-    تواصل مع المهندس يوسف خالد على الرقم: `01007097545`
-    """)
+                # Preview link
+                try:
+                    data_url = make_data_audio_link(out_path)
+                    st.markdown("### 🔗 رابط معاينة" if RTL else "### 🔗 Preview Link")
+                    st.markdown(
+                        f'<a class="clean-link" href="{data_url}" target="_blank">👉 {"افتح المعاينة في تبويب جديد" if RTL else "Open preview in a new tab"}</a>',
+                        unsafe_allow_html=True,
+                    )
+                    st.caption("لو النص طويل جدًا: استخدم زر التحميل." if RTL else "If the audio is large, use the download button.")
+                except Exception:
+                    st.caption("تعذر إنشاء رابط معاينة مباشر." if RTL else "Could not create a preview link.")
 
-# تذييل الصفحة
+            except Exception as e:
+                st.error(("حدث خطأ: " if RTL else "Error: ") + str(e))
+
 st.markdown("---")
-st.markdown("<div style='text-align: center; color: #999;'>© 2026 Developed with ❤️ by Eng. Yousef Khaled</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div class='small-note'>المنصة تعمل بتقنيات AI Web Mobile | متخصصون في الأتمتة الشاملة</div>"
+    if RTL else
+    "<div class='small-note'>Built for AI • Web • Mobile — Specialized in full automation</div>",
+    unsafe_allow_html=True,
+)
