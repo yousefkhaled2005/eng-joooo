@@ -281,8 +281,8 @@ with st.sidebar:
 st.markdown(
     f"""
 <div class="hero">
-  <h1>{"🎙️ منصة عالمية لتحويل النص إلى صوت" if RTL else "🎙️ Global AI Text-to-Speech Studio"}</h1>
-  <p>{"عربي/إنجليزي — ذكور/إناث — سرعات واضحة x0.5 إلى x2 + معاينة وتحميل" if RTL else "Arabic/English — Male/Female — Clear speeds x0.5 to x2 + Preview & Download"}</p>
+  <h1>{"🎙️ منصة المهندس يوسف خالد جودة لتحويل الكتابة لصوت" if RTL else "🎙️ Eng. Yousef Khaled Gouda Voice Studio"}</h1>
+  <p>{"عربي/إنجليزي — ذكور/إناث — تحكم في السرعة بصيغة x0.5 إلى x2 + معاينة وتحميل" if RTL else "Arabic/English — Male/Female — Speed control x0.5 to x2 + Preview & Download"}</p>
 </div>
 """,
     unsafe_allow_html=True,
@@ -512,3 +512,4 @@ st.markdown(
     "<div class='small-note'>Built for AI • Web • Mobile — Specialized in full automation</div>",
     unsafe_allow_html=True,
 )
+
