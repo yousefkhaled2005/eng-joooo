@@ -279,7 +279,14 @@ with right:
     filtered = voice_items
     if search.strip():
         s = search.strip().lower()
-        filtered = [v for v in voice_items if (v.get("FriendlyName","").lower().find(s) != -1 or (v.get("Gender","").lower().find(s) != -1)]
+       filtered = [
+    v for v in voice_items
+    if (
+        s in (v.get("FriendlyName", "") or "").lower()
+        or s in (v.get("Gender", "") or "").lower()
+        or s in (v.get("ShortName", "") or "").lower()
+    )
+]
 
     if not filtered:
         st.warning("لا توجد نتائج للبحث داخل هذه اللغة. جرّب Locale تاني أو امسح البحث.")
@@ -382,3 +389,4 @@ st.markdown(
     "<div class='small-note'>ملاحظة: الأصوات تُجلب تلقائيًا من edge-tts، يعني كل ما Microsoft تضيف أصوات هتظهر عندك تلقائي.</div>",
     unsafe_allow_html=True,
 )
+
